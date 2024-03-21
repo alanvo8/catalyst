@@ -10,7 +10,8 @@
             "type": "php",
             "request": "launch",
             "program": "${file}",
-            "args": ["--create_table", "--dry_run", 
+            "args": ["--file", "users.csv",
+            "--dry_run", 
             "-u", "catalyst_user",
             "-p", "uwJe(OB_9)Pm2M4T",
             "-h", "localhost" ]

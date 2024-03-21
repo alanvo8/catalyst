@@ -1,5 +1,19 @@
 <?php
 
+/*
+Breakdowns:
+1. Get command line arguments
+    a. Display syntax
+    b. Parse arguments
+2. SQL
+    a. Connection
+    b. Create table
+    c. Insert
+3. Read CSV file
+    
+*/
+
+
 // Globals
 global $ARGS;
 
@@ -8,13 +22,6 @@ const DB_NAME = "catalyst";
 
 // Init
 $ARGS = [];
-
-/**
- * Create a PHP script, that is executed from the command line, which accepts a CSV file as input (see command
-line directives below) and processes the CSV file. The parsed file data is to be inserted into a MySQL database.
-A CSV file is provided as part of this task that contains test data, the script must be able to process this file
-appropriately.
- */
 
 function displaySyntax() {
     echo "Command line options (directives):
@@ -31,9 +38,10 @@ php user_upload.php –help";
     exit();
 }
 
-function createTable($username, $password, $host) {
+function createTable() {
+    global $ARGS;
     try {
-        $conn = new mysqli($host, $username, $password, DB_NAME);
+        $conn = new mysqli($ARGS['-h'], $ARGS['-u'], $ARGS['-p'], DB_NAME);
         if ($conn->connect_error) { 
             throw new Exception("Connection failed: " . $conn->connect_error);
         } else {
@@ -60,53 +68,118 @@ function createTable($username, $password, $host) {
     exit();
 }
 
-
-
-/* MAIN */
-
-// check arguments - conditions to display syntax
-if (!isset($argv) || count($argv) <= 1 || in_array("--help", $argv)) {
-    displaySyntax();
+function readCSVFile($filename) {
+    try {
+        $csv = array_map('str_getcsv', file($filename));
+        return $csv;
+    } catch (Exception $e) {   
+        echo "Error: " . $e->getMessage();
+    }
 }
 
-for ($i=1; $i<count($argv); $i++) {
-    $key = $argv[$i];
+function uploadUser($data) {
+    global $ARGS;
+    try {
+        $conn = new mysqli($ARGS['-h'], $ARGS['-u'], $ARGS['-p'], DB_NAME);
+        if ($conn->connect_error) { 
+            throw new Exception("Connection failed: " . $conn->connect_error);
+        } else {
+            echo "Connected successfully \n";
+        }
+        $inserted_rows = 0;
+        $found_rows = count($data) - 1;
+        echo "Found $found_rows rows \n";
+        $is_dryrun = key_exists("--dry_run", $ARGS);
 
-    if ($key[0]!="-") {
+        for ($i = 1; $i < count($data); $i++) {
+            $d = $data[$i];
+            $name = ucfirst(trim(htmlspecialchars($d[0])));
+            $surname = ucfirst(trim(htmlspecialchars($d[1])));
+            $email = strtolower(trim(htmlspecialchars($d[2])));
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                echo "Invalid email format. $email \n";
+            }
+            $sql = "INSERT INTO `users` (`id`, `name`, `surname`, `email`) VALUES (NULL, '$name', '$surname', '$email');";
+            try {
+                if (!$is_dryrun) {
+                    if ($conn->query($sql) === TRUE) {
+                        $inserted_rows+=1;
+                    } else {
+                        throw new Exception("Error: " . $conn->error);
+                    }
+                }          
+            } catch (Exception $e) {
+                echo $e->getMessage();
+            }
+        }
+        
+        if (!$is_dryrun) {
+            echo "\nInserted successfully: $inserted_rows \n";
+        } else { 
+            echo "\nDry run. Inserted 0 rows\n";
+        }
+
+        $conn->close();
+    } catch (Exception $e) {
+        echo $e->getMessage();
+    }
+}
+/* MAIN */
+
+function getArguments($argv) {
+    global $ARGS;
+    if (!isset($argv) || count($argv) <= 1 || in_array("--help", $argv)) {
         displaySyntax();
     }
 
-    if ($key == "--create_table" || $key == "--dry_run") {
-        $value = 1;
-    }
-    else {
-        $value = $argv[$i+ 1];
-        $i++;
-    }
+    for ($i=1; $i<count($argv); $i++) {
+        $key = $argv[$i];
 
-    $ARGS[$key] = $value;
+        if ($key[0]!="-") {
+            displaySyntax();
+        }
+
+        if ($key == "--create_table" || $key == "--dry_run") {
+            $value = 1;
+        }
+        else {
+            $value = $argv[$i+ 1];
+            $i++;
+        }
+
+        $ARGS[$key] = $value;
+    }   
 }
 
+getArguments($argv);
+
+# Create table logic
 if (key_exists("--create_table", $ARGS)) {
     try {
         if (key_exists("-u", $ARGS) && key_exists("-p", $ARGS) && key_exists("-p", $ARGS)) {
-            createTable($ARGS['-u'], $ARGS['-p'], $ARGS['-h']);
+                createTable();
         } else {
-            
             throw new Exception('Error creating table - Missing DB details');
-            
         }
-        
-
     } catch (Exception $e) {
         echo "Error: " . $e->getMessage();
-        displaySyntax();
     }
-    
 }
 
-if (key_exists("-file", $ARGS)) {
+# File logic
+if (key_exists("--file", $ARGS)) {
+    try {
+        $fileName = $ARGS["--file"];
+        $data = readCSVFile($fileName);
+        $rowCount = count($data);
 
+        if ($rowCount > 0) uploadUser($data);
+        else 
+            echo "Dry Run: $rowCount found, 0 uploaded";
+        
+    } catch (Exception $e) {
+        echo "Error: " . $e->getMessage();
+    }
 }
 
 
